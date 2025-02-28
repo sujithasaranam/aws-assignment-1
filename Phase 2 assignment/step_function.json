@@ -1,0 +1,65 @@
+{
+    "StartAt": "ReceiveMessage",
+    "States": {
+      "ReceiveMessage": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::aws-sdk:sqs:receiveMessage",
+        "Parameters": {
+          "QueueUrl": "https://sqs.ap-south-1.amazonaws.com/980921744378/erp-orders-queue-step-function",
+          "MaxNumberOfMessages": 1,
+          "WaitTimeSeconds": 10
+        },
+        "ResultPath": "$.Message",
+        "Next": "ValidateOrder"
+      },
+      "ValidateOrder": {
+        "Type": "Task",
+        "Resource": "arn:aws:lambda:ap-south-1:980921744378:function:SQSStepFunction:$LATEST",
+        "Parameters": {
+          "order.$": "$.Message.Messages[0].Body"
+        },
+        "ResultPath": "$.ValidatedOrder",
+        "Next": "StoreInDB"
+      },
+      "StoreInDB": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::aws-sdk:dynamodb:putItem",
+        "Parameters": {
+          "TableName": "erp-orders",
+          "Item": {
+            "order_id": {
+              "S.$": "$.ValidatedOrder.order.order_id"
+            },
+            "customer_name": {
+              "S.$": "$.ValidatedOrder.order.customer_name"
+            },
+            "product_name": {
+              "S.$": "$.ValidatedOrder.order.product_name"
+            },
+            "quantity": {
+              "N.$": "States.Format('{}' ,$.ValidatedOrder.order.quantity)"
+            },
+            "price": {
+              "N.$": "States.Format('{}' ,$.ValidatedOrder.order.price)"
+            },
+            "order_date": {
+              "S.$": "$.ValidatedOrder.order.order_date"
+            }
+          }
+        },
+        "ResultPath": "$.DynamoDBResult",
+        "OutputPath": "$",
+        "Next": "SNS Publish"
+      },
+      "SNS Publish": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::sns:publish",
+        "Parameters": {
+          "TopicArn": "arn:aws:sns:ap-south-1:980921744378:OrderReceivedNotification",
+          "Message.$": "States.Format('Order ID: {} has been successfully placed!', $.ValidatedOrder.order.order_id)",
+          "Subject": "Order Confirmation"
+        },
+        "End": true
+      }
+    }
+  }
